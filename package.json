@@ -1,7 +1,7 @@
 {
-  "name": "amc-good-seats",
+  "name": "amc-lincoln-square-seat-watcher",
   "version": "1.0.0",
-  "description": "Watch AMC Lincoln Square IMAX 70mm for target seats and email when available.",
+  "description": "Watch AMC Lincoln Square IMAX 70mm for The Odyssey and Dune: Part Three seats.",
   "private": true,
   "scripts": {
     "start": "node amc-node.js"

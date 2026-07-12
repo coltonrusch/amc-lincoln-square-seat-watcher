@@ -29,7 +29,7 @@ This repo is a GitHub-Actions-hosted seat watcher for AMC Lincoln Square IMAX 70
 - `GMAIL_APP_PASSWORD` — 16-char app password (requires 2FA on that Gmail account)
 - `NOTIFY_EMAIL` — comma-separated list of recipients
 
-Set via: `gh secret set <NAME> --repo divkhare/amc-good-seats --body '<value>'`.
+Set via: `gh secret set <NAME> --repo coltonrusch/amc-lincoln-square-seat-watcher --body '<value>'`.
 
 ## Behavior notes
 
@@ -47,8 +47,8 @@ Set via: `gh secret set <NAME> --repo divkhare/amc-good-seats --body '<value>'`.
 
 ## Debugging a run
 
-- `gh run list --repo divkhare/amc-good-seats --limit 5`
-- `gh run view <run-id> --repo divkhare/amc-good-seats --log`
+- `gh run list --repo coltonrusch/amc-lincoln-square-seat-watcher --limit 5`
+- `gh run view <run-id> --repo coltonrusch/amc-lincoln-square-seat-watcher --log`
 - Look for: `Email sent to …` (success), `Email send failed: …` (delivery issue), `below N-seat threshold` (real scan but no qualifying hits).
 
 ## Do NOT do without asking

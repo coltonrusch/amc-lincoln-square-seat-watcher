@@ -22,10 +22,6 @@ const MOVIES = [
   "the odyssey",
   "dune: part three",
   "dune part three",
-  "spider-man: brand new day",
-  "spider-man brand new day",
-  "avengers: doomsday",
-  "avengers doomsday",
 ];
 
 const MIN_SHOWTIME_MINUTES = 13 * 60;

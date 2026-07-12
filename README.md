@@ -10,7 +10,7 @@ Runs on **GitHub Actions** (free) every ~10 minutes. When a showtime has 2 or mo
 
 - **Theater:** AMC Lincoln Square 13
 - **Format:** IMAX 70mm
-- **Movies:** The Odyssey, Dune: Part Three, Spider-Man: Brand New Day, Avengers: Doomsday
+- **Movies:** The Odyssey and Dune: Part Three
 - **Seats:** rows F/G/H/J, columns 9–39 (the center "sweet spot")
 - **Showtimes:** 1:00pm or later
 - **Window:** next 14 days
@@ -48,7 +48,7 @@ Recipients are stored as a GitHub repo secret called `NOTIFY_EMAIL` (comma-separ
 **To add/change recipients**, from any terminal with `gh` installed and logged in:
 
 ```bash
-gh secret set NOTIFY_EMAIL --repo divkhare/amc-good-seats --body 'you@example.com,friend@example.com'
+gh secret set NOTIFY_EMAIL --repo coltonrusch/amc-lincoln-square-seat-watcher --body 'you@example.com,friend@example.com'
 ```
 
 Or do it in the UI: **Settings → Secrets and variables → Actions → `NOTIFY_EMAIL` → Update**.
@@ -60,13 +60,13 @@ Or do it in the UI: **Settings → Secrets and variables → Actions → `NOTIFY
 **Quick test with a widened seat zone** (this will definitely find and email seats, useful for confirming the pipeline works):
 
 ```bash
-gh workflow run check-seats.yml --repo divkhare/amc-good-seats -f test_mode=true
+gh workflow run check-seats.yml --repo coltonrusch/amc-lincoln-square-seat-watcher -f test_mode=true
 ```
 
 **Normal run** (narrow seat zone — may find nothing):
 
 ```bash
-gh workflow run check-seats.yml --repo divkhare/amc-good-seats
+gh workflow run check-seats.yml --repo coltonrusch/amc-lincoln-square-seat-watcher
 ```
 
 Or use the GitHub UI: **Actions → Check AMC Seats → Run workflow**.
@@ -75,7 +75,7 @@ Or use the GitHub UI: **Actions → Check AMC Seats → Run workflow**.
 
 ## Where to see it running
 
-- Live run list: **https://github.com/divkhare/amc-good-seats/actions**
+- Live run list: **https://github.com/coltonrusch/amc-lincoln-square-seat-watcher/actions**
 - Click any run to see full logs — every showtime scanned, seat counts, and email-send confirmations.
 
 ---
@@ -87,7 +87,7 @@ Or use the GitHub UI: **Actions → Check AMC Seats → Run workflow**.
 - Check the latest run's logs. If you see `Email sent to …` lines, the delivery succeeded from our end — it's a Gmail inbox issue.
 - If you see `Email send failed: Invalid login`, the `GMAIL_APP_PASSWORD` secret is wrong. Regenerate at https://myaccount.google.com/apppasswords and update:
   ```bash
-  gh secret set GMAIL_APP_PASSWORD --repo divkhare/amc-good-seats --body 'new-app-password'
+  gh secret set GMAIL_APP_PASSWORD --repo coltonrusch/amc-lincoln-square-seat-watcher --body 'new-app-password'
   ```
 
 **"Actions aren't running"**
