@@ -13,7 +13,7 @@ Runs on **GitHub Actions** (free) every ~10 minutes. When a showtime has a seat 
 - **Movies:** The Odyssey and Dune: Part Three
 - **Seats:** rows F/G/H/J, columns 9–39 (the center "sweet spot")
 - **Showtimes:** any time
-- **Window:** next 14 days
+- **Window:** next 14 days, plus December 17, 2026–January 10, 2027 for Dune advance sales
 - **Threshold:** email sent when a showtime has **1+ seat** in the zone
 - **Recipients:** set in the repo's `NOTIFY_EMAIL` secret (comma-separated)
 
@@ -31,6 +31,7 @@ All tweakable settings live at the top of [`amc-node.js`](./amc-node.js). Edit t
 | Earliest showtime | `MIN_SHOWTIME_MINUTES` (e.g., `13 * 60` = 1:00pm) |
 | Minimum seats to trigger email | `MIN_SEATS_FOR_EMAIL` |
 | How many days ahead to scan | `MAX_DATES` |
+| Advance-sale date ranges | `ADVANCE_DATE_WINDOWS` |
 | Which theater | `THEATER_URL` (Lincoln Square for now; any AMC showtimes URL will work) |
 
 ### Quick edit workflow
@@ -95,6 +96,11 @@ Or use the GitHub UI: **Actions → Check AMC Seats → Run workflow**.
   ```bash
   git commit --allow-empty -m "Keep scheduler alive" && git push
   ```
+
+**"How will I know if the watcher breaks?"**
+- The job fails when AMC returns no dates or no showtime links, when the scan throws an error, when it times out, or when Gmail rejects an alert.
+- Enable GitHub's failed-workflow notifications at **GitHub → Settings → Notifications → System → Actions → Email → Only notify for failed workflows**.
+- Failed runs and their detailed logs also appear in the repository's **Actions** tab.
 
 **"The scan is hitting the 15-min timeout"**
 - Lower `MAX_DATES` in `amc-node.js` (e.g., to 7).

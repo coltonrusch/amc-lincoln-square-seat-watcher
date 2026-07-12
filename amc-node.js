@@ -32,6 +32,13 @@ const THEATER_URL =
 const TEST_MODE = process.env.TEST_MODE === "true" || process.env.TEST_MODE === "1";
 
 const MAX_DATES = 14;
+const ADVANCE_DATE_WINDOWS = [
+  {
+    label: "Dune: Part Three",
+    start: "2026-12-17",
+    end: "2027-01-10",
+  },
+];
 const MIN_SEATS_FOR_EMAIL = 1;
 
 const TARGET_ROWS = TEST_MODE
@@ -89,6 +96,7 @@ async function sendEmail(subject, html) {
     log(`Email sent to ${NOTIFY_EMAILS.join(", ")}.`);
   } catch (err) {
     log(`Email send failed: ${err.message}`);
+    throw err;
   }
 }
 
@@ -133,7 +141,7 @@ async function getShowtimes(page, date) {
         soldOut: isSoldOut,
       });
     }
-    return results;
+    return { showtimes: results, showtimeLinkCount: links.length };
   }, MOVIES);
 }
 
@@ -189,14 +197,27 @@ async function runFullScan(page) {
   log(`Seats: rows ${TARGET_ROWS.join("/")} cols ${TARGET_COL_MIN}-${TARGET_COL_MAX}`);
 
   const allDates = await getAvailableDates(page);
-  const dates = allDates.slice(0, MAX_DATES);
-  log(`Scanning ${dates.length} of ${allDates.length} dates${dates.length ? ` (${dates[0]} -> ${dates[dates.length - 1]})` : ""}`);
+  if (allDates.length === 0) {
+    throw new Error("AMC returned no selectable dates; the site may be unavailable or its markup may have changed.");
+  }
+
+  const rollingDates = allDates.slice(0, MAX_DATES);
+  const advanceDates = allDates.filter((date) =>
+    ADVANCE_DATE_WINDOWS.some(({ start, end }) => date >= start && date <= end)
+  );
+  const dates = [...new Set([...rollingDates, ...advanceDates])].sort();
+  log(`Scanning ${dates.length} of ${allDates.length} dates (${rollingDates.length} rolling, ${advanceDates.length} advance-window)`);
+  for (const { label, start, end } of ADVANCE_DATE_WINDOWS) {
+    log(`Advance window: ${label} (${start} -> ${end})`);
+  }
 
   let emailsSent = 0;
   let totalHits = 0;
+  let totalShowtimeLinks = 0;
 
   for (const date of dates) {
-    const showtimes = await getShowtimes(page, date);
+    const { showtimes, showtimeLinkCount } = await getShowtimes(page, date);
+    totalShowtimeLinks += showtimeLinkCount;
     if (showtimes.length === 0) continue;
 
     log(`  ${date}: ${showtimes.length} IMAX 70mm showtime(s)`);
@@ -238,6 +259,10 @@ async function runFullScan(page) {
     }
   }
 
+  if (totalShowtimeLinks === 0) {
+    throw new Error("AMC returned no showtime links across all scanned dates; the site may be unavailable or its markup may have changed.");
+  }
+
   if (totalHits === 0) {
     log(`No showtimes with ${MIN_SEATS_FOR_EMAIL}+ target seats found this scan.`);
   } else {
@@ -249,6 +274,10 @@ async function runFullScan(page) {
 
 async function main() {
   log("AMC IMAX 70mm Seat Watcher — single scan");
+
+  if (!GMAIL_USER || !GMAIL_APP_PASSWORD || NOTIFY_EMAILS.length === 0) {
+    throw new Error("GMAIL_USER, GMAIL_APP_PASSWORD, and NOTIFY_EMAIL must all be configured.");
+  }
 
   const browser = await puppeteer.launch({
     headless: "new",
