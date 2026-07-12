@@ -2,7 +2,7 @@
 
 Watches AMC Lincoln Square 13 (NYC) for good seats at IMAX 70mm showings and emails a notification the moment seats open up.
 
-Runs on **GitHub Actions** (free) every ~10 minutes. When a showtime has 2 or more seats in the target zone, each recipient gets an email with the count, seat numbers, and a booking link.
+Runs on **GitHub Actions** (free) every ~10 minutes. When a showtime has a seat in the target zone, each recipient gets an email with the count, seat numbers, and a booking link.
 
 ---
 
@@ -12,9 +12,9 @@ Runs on **GitHub Actions** (free) every ~10 minutes. When a showtime has 2 or mo
 - **Format:** IMAX 70mm
 - **Movies:** The Odyssey and Dune: Part Three
 - **Seats:** rows F/G/H/J, columns 9–39 (the center "sweet spot")
-- **Showtimes:** 1:00pm or later
+- **Showtimes:** any time
 - **Window:** next 14 days
-- **Threshold:** email sent when a showtime has **2+ seats** in the zone
+- **Threshold:** email sent when a showtime has **1+ seat** in the zone
 - **Recipients:** set in the repo's `NOTIFY_EMAIL` secret (comma-separated)
 
 ---
@@ -103,7 +103,7 @@ Or use the GitHub UI: **Actions → Check AMC Seats → Run workflow**.
 
 ## How it works (one paragraph)
 
-GitHub Actions spins up a fresh Ubuntu VM every 10 minutes (and on every push to `main`). It runs `amc-node.js`, which uses headless Chrome via Puppeteer to open the AMC showtimes page, click through each date, identify IMAX 70mm showings of the movies in the watch list, then loads each showtime's seat map and counts available seats in the target zone. If a showtime has 2+ seats, it sends an email immediately via Gmail SMTP (using an app password) to every recipient in `NOTIFY_EMAIL`. The VM is then torn down — nothing persists between runs.
+GitHub Actions spins up a fresh Ubuntu VM every 10 minutes (and on every push to `main`). It runs `amc-node.js`, which uses headless Chrome via Puppeteer to open the AMC showtimes page, click through each date, identify IMAX 70mm showings of the movies in the watch list, then loads each showtime's seat map and counts available seats in the target zone. If a showtime has at least one seat, it sends an email immediately via Gmail SMTP (using an app password) to every recipient in `NOTIFY_EMAIL`. The VM is then torn down — nothing persists between runs.
 
 ---
 

@@ -24,7 +24,7 @@ const MOVIES = [
   "dune part three",
 ];
 
-const MIN_SHOWTIME_MINUTES = 13 * 60;
+const MIN_SHOWTIME_MINUTES = 0;
 
 const THEATER_URL =
   "https://www.amctheatres.com/movie-theatres/new-york-city/amc-lincoln-square-13/showtimes";
@@ -32,7 +32,7 @@ const THEATER_URL =
 const TEST_MODE = process.env.TEST_MODE === "true" || process.env.TEST_MODE === "1";
 
 const MAX_DATES = 14;
-const MIN_SEATS_FOR_EMAIL = 2;
+const MIN_SEATS_FOR_EMAIL = 1;
 
 const TARGET_ROWS = TEST_MODE
   ? ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P"]
@@ -209,7 +209,7 @@ async function runFullScan(page) {
 
       const stMinutes = parseShowtimeMinutes(st.time);
       if (stMinutes !== null && stMinutes < MIN_SHOWTIME_MINUTES) {
-        log(`    ${st.time} ${st.movie} — before 1:00pm, skipping`);
+        log(`    ${st.time} ${st.movie} — before configured cutoff, skipping`);
         continue;
       }
 
