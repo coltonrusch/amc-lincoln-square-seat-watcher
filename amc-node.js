@@ -32,6 +32,8 @@ const THEATER_URL =
 const TEST_MODE = process.env.TEST_MODE === "true" || process.env.TEST_MODE === "1";
 
 const MAX_DATES = 14;
+const DATE_SCAN_CONCURRENCY = 3;
+const NAVIGATION_ATTEMPTS = 3;
 const ADVANCE_DATE_WINDOWS = [
   {
     label: "Dune: Part Three",
@@ -77,6 +79,52 @@ function parseShowtimeMinutes(timeText) {
   return h * 60 + min;
 }
 
+async function withFreshPageRetry(browser, label, task) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= NAVIGATION_ATTEMPTS; attempt++) {
+    const context = await browser.createBrowserContext();
+    const page = await context.newPage();
+
+    try {
+      return await task(page);
+    } catch (err) {
+      lastError = err;
+      if (attempt < NAVIGATION_ATTEMPTS) {
+        const delay = 1000 * 2 ** (attempt - 1) + Math.random() * 1000;
+        log(`${label} failed (attempt ${attempt}/${NAVIGATION_ATTEMPTS}): ${err.message} — retrying`);
+        await sleep(delay);
+      }
+    } finally {
+      await context.close().catch(() => {});
+    }
+  }
+
+  throw new Error(`${label} failed after ${NAVIGATION_ATTEMPTS} attempts: ${lastError.message}`);
+}
+
+async function navigateToListings(page, url) {
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForSelector('select[name="date"]', { timeout: 30000 });
+  await sleep(1500);
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await worker(items[index], index);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
+}
+
 async function sendEmail(subject, html) {
   if (!GMAIL_USER || !GMAIL_APP_PASSWORD || NOTIFY_EMAILS.length === 0) {
     log("GMAIL_USER / GMAIL_APP_PASSWORD / NOTIFY_EMAIL not set — skipping email.");
@@ -102,101 +150,106 @@ async function sendEmail(subject, html) {
 
 // ─── Scraping ───────────────────────────────────────────────────────────────
 
-async function getShowtimes(page, date) {
+async function getShowtimes(browser, date) {
   const url = date ? `${THEATER_URL}?date=${date}` : THEATER_URL;
-  await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
-  await sleep(2000);
+  return withFreshPageRetry(browser, `Showtimes for ${date}`, async (page) => {
+    await navigateToListings(page, url);
 
-  return page.evaluate((movieTerms) => {
-    const links = document.querySelectorAll("a[href*='/showtimes/']");
-    const results = [];
+    return page.evaluate((movieTerms) => {
+      const links = document.querySelectorAll("a[href*='/showtimes/']");
+      const results = [];
 
-    for (const link of links) {
-      const href = link.href;
-      const idMatch = href.match(/\/showtimes\/(\d+)/);
-      if (!idMatch) continue;
+      for (const link of links) {
+        const href = link.href;
+        const idMatch = href.match(/\/showtimes\/(\d+)/);
+        if (!idMatch) continue;
 
-      const showtimeId = idMatch[1];
-      const timeText = link.innerText.trim().split("\n")[0];
-      const isSoldOut = link.innerText.includes("Sold Out");
+        const showtimeId = idMatch[1];
+        const timeText = link.innerText.trim().split("\n")[0];
+        const isSoldOut = link.innerText.includes("Sold Out");
 
-      const formatLi = link.closest("ul")?.closest("li");
-      const isImax70mm = formatLi
-        ? (formatLi.innerText || "").includes("IMAX 70MM")
-        : false;
-      if (!isImax70mm) continue;
+        const formatLi = link.closest("ul")?.closest("li");
+        const isImax70mm = formatLi
+          ? (formatLi.innerText || "").includes("IMAX 70MM")
+          : false;
+        if (!isImax70mm) continue;
 
-      const section = link.closest("section");
-      const movieHeading = section?.querySelector("h1");
-      const movieName = movieHeading ? movieHeading.innerText.trim() : "";
+        const section = link.closest("section");
+        const movieHeading = section?.querySelector("h1");
+        const movieName = movieHeading ? movieHeading.innerText.trim() : "";
 
-      const lower = movieName.toLowerCase();
-      const matches = movieTerms.some((term) => lower.includes(term));
-      if (!matches) continue;
+        const lower = movieName.toLowerCase();
+        const matches = movieTerms.some((term) => lower.includes(term));
+        if (!matches) continue;
 
-      results.push({
-        id: showtimeId,
-        movie: movieName,
-        time: timeText,
-        soldOut: isSoldOut,
-      });
-    }
-    return { showtimes: results, showtimeLinkCount: links.length };
-  }, MOVIES);
-}
-
-async function getAvailableDates(page) {
-  await page.goto(THEATER_URL, { waitUntil: "networkidle2", timeout: 60000 });
-  await sleep(2000);
-
-  return page.evaluate(() => {
-    const options = document.querySelectorAll('select[name="date"] option');
-    return Array.from(options)
-      .map((o) => o.value)
-      .filter((v) => v && /^\d{4}-\d{2}-\d{2}$/.test(v));
+        results.push({
+          id: showtimeId,
+          movie: movieName,
+          time: timeText,
+          soldOut: isSoldOut,
+        });
+      }
+      return { showtimes: results, showtimeLinkCount: links.length };
+    }, MOVIES);
   });
 }
 
-async function getAvailableSeats(page, showtimeId) {
-  const url = `https://www.amctheatres.com/showtimes/${showtimeId}`;
-  await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
-  await sleep(3000);
+async function getAvailableDates(browser) {
+  return withFreshPageRetry(browser, "Available dates", async (page) => {
+    await navigateToListings(page, THEATER_URL);
 
-  return page.evaluate(
-    (rows, colMin, colMax) => {
-      const inputs = document.querySelectorAll("input[aria-label]");
-      const available = [];
-      for (const input of inputs) {
-        const label = input.getAttribute("aria-label");
-        if (label.startsWith("Occupied")) continue;
-        const match = label.match(/([A-Z])(\d+)$/);
-        if (!match) continue;
-        const row = match[1];
-        const col = parseInt(match[2], 10);
-        if (rows.includes(row) && col >= colMin && col <= colMax) {
-          available.push(row + col);
+    return page.evaluate(() => {
+      const options = document.querySelectorAll('select[name="date"] option');
+      return Array.from(options)
+        .map((o) => o.value)
+        .filter((v) => v && /^\d{4}-\d{2}-\d{2}$/.test(v));
+    });
+  });
+}
+
+async function getAvailableSeats(browser, showtimeId) {
+  const url = `https://www.amctheatres.com/showtimes/${showtimeId}`;
+  return withFreshPageRetry(browser, `Seat map ${showtimeId}`, async (page) => {
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForSelector("input[aria-label]", { timeout: 30000 });
+    await sleep(1500);
+
+    return page.evaluate(
+      (rows, colMin, colMax) => {
+        const inputs = document.querySelectorAll("input[aria-label]");
+        const available = [];
+        for (const input of inputs) {
+          const label = input.getAttribute("aria-label");
+          if (label.startsWith("Occupied")) continue;
+          const match = label.match(/([A-Z])(\d+)$/);
+          if (!match) continue;
+          const row = match[1];
+          const col = parseInt(match[2], 10);
+          if (rows.includes(row) && col >= colMin && col <= colMax) {
+            available.push(row + col);
+          }
         }
-      }
-      available.sort((a, b) => {
-        if (a[0] !== b[0]) return a[0].localeCompare(b[0]);
-        return parseInt(a.slice(1)) - parseInt(b.slice(1));
-      });
-      return available;
-    },
-    TARGET_ROWS,
-    TARGET_COL_MIN,
-    TARGET_COL_MAX
-  );
+        available.sort((a, b) => {
+          if (a[0] !== b[0]) return a[0].localeCompare(b[0]);
+          return parseInt(a.slice(1)) - parseInt(b.slice(1));
+        });
+        return available;
+      },
+      TARGET_ROWS,
+      TARGET_COL_MIN,
+      TARGET_COL_MAX
+    );
+  });
 }
 
 // ─── Scan ───────────────────────────────────────────────────────────────────
 
-async function runFullScan(page) {
+async function runFullScan(browser) {
   log("Scanning AMC Lincoln Square 13 — IMAX 70mm");
   log(`Target: ${MOVIES.join(", ")}`);
   log(`Seats: rows ${TARGET_ROWS.join("/")} cols ${TARGET_COL_MIN}-${TARGET_COL_MAX}`);
 
-  const allDates = await getAvailableDates(page);
+  const allDates = await getAvailableDates(browser);
   if (allDates.length === 0) {
     throw new Error("AMC returned no selectable dates; the site may be unavailable or its markup may have changed.");
   }
@@ -215,8 +268,15 @@ async function runFullScan(page) {
   let totalHits = 0;
   let totalShowtimeLinks = 0;
 
-  for (const date of dates) {
-    const { showtimes, showtimeLinkCount } = await getShowtimes(page, date);
+  const dateResults = await mapWithConcurrency(
+    dates,
+    DATE_SCAN_CONCURRENCY,
+    (date) => getShowtimes(browser, date)
+  );
+
+  for (let index = 0; index < dates.length; index++) {
+    const date = dates[index];
+    const { showtimes, showtimeLinkCount } = dateResults[index];
     totalShowtimeLinks += showtimeLinkCount;
     if (showtimes.length === 0) continue;
 
@@ -234,7 +294,7 @@ async function runFullScan(page) {
         continue;
       }
 
-      const seats = await getAvailableSeats(page, st.id);
+      const seats = await getAvailableSeats(browser, st.id);
       if (seats.length === 0) {
         log(`    ${st.time} ${st.movie} — no target seats`);
       } else if (seats.length < MIN_SEATS_FOR_EMAIL) {
@@ -283,11 +343,10 @@ async function main() {
     headless: "new",
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
-  const page = await browser.newPage();
 
   let exitCode = 0;
   try {
-    await runFullScan(page);
+    await runFullScan(browser);
   } catch (err) {
     log(`Scan error: ${err.stack || err.message}`);
     exitCode = 1;

@@ -4,6 +4,8 @@ Watches AMC Lincoln Square 13 (NYC) for good seats at IMAX 70mm showings and ema
 
 Runs on **GitHub Actions** (free) every ~10 minutes. When a showtime has a seat in the target zone, each recipient gets an email with the count, seat numbers, and a booking link.
 
+AMC navigation is retried up to three times using a fresh browser session. Date pages are scanned three at a time to keep a full scan comfortably below the scheduling interval without sending an excessive burst of requests.
+
 ---
 
 ## What it's currently watching
@@ -96,6 +98,7 @@ Or use the GitHub UI: **Actions → Check AMC Seats → Run workflow**.
   ```bash
   git commit --allow-empty -m "Keep scheduler alive" && git push
   ```
+- GitHub's scheduler is best-effort: scheduled runs can be delayed or dropped during platform load. The watcher uses an offset ten-minute schedule to reduce this, but exact timing is not guaranteed.
 
 **"How will I know if the watcher breaks?"**
 - The job fails when AMC returns no dates or no showtime links, when the scan throws an error, when it times out, or when Gmail rejects an alert.
