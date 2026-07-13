@@ -4,7 +4,7 @@ Watches AMC Lincoln Square 13 (NYC) for good seats at IMAX 70mm showings and ema
 
 Runs on **GitHub Actions** (free) every ~10 minutes. When a showtime has a seat in the target zone, each recipient gets an email with the count, seat numbers, and a booking link.
 
-AMC navigation is retried up to three times using a fresh browser session. Date pages are scanned three at a time to keep a full scan comfortably below the scheduling interval without sending an excessive burst of requests.
+AMC navigation is retried up to three times using a fresh browser session. Date pages and seat maps are scanned in conservative batches of three to keep a full scan comfortably below the scheduling interval without sending an excessive burst of requests. Email delivery remains sequential.
 
 ---
 

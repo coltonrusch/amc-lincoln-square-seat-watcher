@@ -33,6 +33,7 @@ const TEST_MODE = process.env.TEST_MODE === "true" || process.env.TEST_MODE === 
 
 const MAX_DATES = 14;
 const DATE_SCAN_CONCURRENCY = 3;
+const SEAT_SCAN_CONCURRENCY = 3;
 const NAVIGATION_ATTEMPTS = 3;
 const ADVANCE_DATE_WINDOWS = [
   {
@@ -267,6 +268,7 @@ async function runFullScan(browser) {
   let emailsSent = 0;
   let totalHits = 0;
   let totalShowtimeLinks = 0;
+  const showtimesToScan = [];
 
   const dateResults = await mapWithConcurrency(
     dates,
@@ -294,16 +296,35 @@ async function runFullScan(browser) {
         continue;
       }
 
-      const seats = await getAvailableSeats(browser, st.id);
-      if (seats.length === 0) {
-        log(`    ${st.time} ${st.movie} — no target seats`);
-      } else if (seats.length < MIN_SEATS_FOR_EMAIL) {
-        log(`    ${st.time} ${st.movie} — ${seats.length} seat (below ${MIN_SEATS_FOR_EMAIL}-seat threshold): ${seats.join(", ")}`);
-      } else {
-        totalHits++;
-        log(`    ${st.time} ${st.movie} — ${seats.length} seats: ${seats.join(", ")} → emailing`);
-        const subject = `AMC IMAX 70mm: ${seats.length} seats — ${st.movie} · ${date} ${st.time}`;
-        const html = `
+      showtimesToScan.push({ date, st });
+    }
+  }
+
+  if (totalShowtimeLinks === 0) {
+    throw new Error("AMC returned no showtime links across all scanned dates; the site may be unavailable or its markup may have changed.");
+  }
+
+  log(`Checking ${showtimesToScan.length} seat maps with concurrency ${SEAT_SCAN_CONCURRENCY}`);
+  const seatResults = await mapWithConcurrency(
+    showtimesToScan,
+    SEAT_SCAN_CONCURRENCY,
+    async ({ date, st }) => ({
+      date,
+      st,
+      seats: await getAvailableSeats(browser, st.id),
+    })
+  );
+
+  for (const { date, st, seats } of seatResults) {
+    if (seats.length === 0) {
+      log(`    ${st.time} ${st.movie} — no target seats`);
+    } else if (seats.length < MIN_SEATS_FOR_EMAIL) {
+      log(`    ${st.time} ${st.movie} — ${seats.length} seat (below ${MIN_SEATS_FOR_EMAIL}-seat threshold): ${seats.join(", ")}`);
+    } else {
+      totalHits++;
+      log(`    ${st.time} ${st.movie} — ${seats.length} seats: ${seats.join(", ")} → emailing`);
+      const subject = `AMC IMAX 70mm: ${seats.length} seats — ${st.movie} · ${date} ${st.time}`;
+      const html = `
 <div style="font-family:system-ui,sans-serif;">
   <h2 style="margin:0 0 8px 0;">${st.movie}</h2>
   <p style="margin:0 0 8px 0;color:#555;">${date} &middot; ${st.time}</p>
@@ -311,16 +332,10 @@ async function runFullScan(browser) {
   <p style="margin:0 0 12px 0;font-family:ui-monospace,monospace;">${seats.join(", ")}</p>
   <p style="margin:0;"><a href="https://www.amctheatres.com/showtimes/${st.id}">Book now →</a></p>
 </div>`;
-        await sendEmail(subject, html);
-        emailsSent++;
-      }
-
+      await sendEmail(subject, html);
+      emailsSent++;
       await sleep(1000 + Math.random() * 1000);
     }
-  }
-
-  if (totalShowtimeLinks === 0) {
-    throw new Error("AMC returned no showtime links across all scanned dates; the site may be unavailable or its markup may have changed.");
   }
 
   if (totalHits === 0) {
