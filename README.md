@@ -6,6 +6,8 @@ Runs on **GitHub Actions** (free) every ~10 minutes. When a showtime has a seat 
 
 AMC navigation is retried up to three times using a fresh browser session. Date pages and seat maps are scanned in conservative batches of three to keep a full scan comfortably below the scheduling interval without sending an excessive burst of requests. Email delivery remains sequential.
 
+If an individual seat map still fails after all retries, the watcher continues processing every other showtime and sends any qualifying alerts it can. The workflow is marked failed only after that processing finishes, so a partial AMC outage cannot suppress unrelated seat alerts.
+
 ---
 
 ## What it's currently watching

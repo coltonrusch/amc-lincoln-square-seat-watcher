@@ -126,6 +126,29 @@ async function mapWithConcurrency(items, limit, worker) {
   return results;
 }
 
+async function mapWithConcurrencySettled(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      try {
+        results[index] = {
+          status: "fulfilled",
+          value: await worker(items[index], index),
+        };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
+}
+
 async function sendEmail(subject, html) {
   if (!GMAIL_USER || !GMAIL_APP_PASSWORD || NOTIFY_EMAILS.length === 0) {
     log("GMAIL_USER / GMAIL_APP_PASSWORD / NOTIFY_EMAIL not set — skipping email.");
@@ -305,7 +328,7 @@ async function runFullScan(browser) {
   }
 
   log(`Checking ${showtimesToScan.length} seat maps with concurrency ${SEAT_SCAN_CONCURRENCY}`);
-  const seatResults = await mapWithConcurrency(
+  const settledSeatResults = await mapWithConcurrencySettled(
     showtimesToScan,
     SEAT_SCAN_CONCURRENCY,
     async ({ date, st }) => ({
@@ -315,7 +338,18 @@ async function runFullScan(browser) {
     })
   );
 
-  for (const { date, st, seats } of seatResults) {
+  const seatFailures = [];
+
+  for (let index = 0; index < settledSeatResults.length; index++) {
+    const result = settledSeatResults[index];
+    if (result.status === "rejected") {
+      const { date, st } = showtimesToScan[index];
+      seatFailures.push({ date, st, error: result.reason });
+      log(`    ${date} ${st.time} ${st.movie} — seat map failed; continuing with other showtimes`);
+      continue;
+    }
+
+    const { date, st, seats } = result.value;
     if (seats.length === 0) {
       log(`    ${st.time} ${st.movie} — no target seats`);
     } else if (seats.length < MIN_SEATS_FOR_EMAIL) {
@@ -342,6 +376,13 @@ async function runFullScan(browser) {
     log(`No showtimes with ${MIN_SEATS_FOR_EMAIL}+ target seats found this scan.`);
   } else {
     log(`Scan complete. ${emailsSent} email(s) sent for ${totalHits} showtime hit(s).`);
+  }
+
+  if (seatFailures.length > 0) {
+    const failedIds = seatFailures.map(({ st }) => st.id).join(", ");
+    throw new Error(
+      `${seatFailures.length} seat map(s) failed after retries (${failedIds}). All other showtimes were processed.`
+    );
   }
 }
 
