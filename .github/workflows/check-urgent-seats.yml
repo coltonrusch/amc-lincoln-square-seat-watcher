@@ -1,25 +1,29 @@
-name: Broad AMC Seat Scan
+name: Urgent AMC Seat Scan
 
 on:
-  push:
-    branches: [main]
   schedule:
-    - cron: "7,37 * * * *"
+    # GitHub cron is a five-minute, best-effort fallback. For two-minute checks,
+    # dispatch this workflow from the external scheduler described in README.md.
+    - cron: "1/5 * * * *"
   workflow_dispatch:
     inputs:
       test_mode:
-        description: "Widen seat zone (any row, cols 1-100) to verify pipeline"
+        description: "Widen seat zone to verify the pipeline"
+        type: boolean
+        default: false
+      force_all_due:
+        description: "Check every showtime inside 48 hours, ignoring cadence tiers"
         type: boolean
         default: false
 
 concurrency:
-  group: amc-seat-watcher-broad
+  group: amc-seat-watcher-urgent
   cancel-in-progress: false
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -36,4 +40,5 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
           TEST_MODE: ${{ inputs.test_mode }}
-          SCAN_MODE: broad
+          SCAN_MODE: urgent
+          FORCE_URGENT_SCAN: ${{ inputs.force_all_due }}

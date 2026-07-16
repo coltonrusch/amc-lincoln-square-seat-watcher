@@ -1,25 +1,22 @@
-name: Broad AMC Seat Scan
+name: Check AMC Watcher Health
 
 on:
-  push:
-    branches: [main]
   schedule:
-    - cron: "7,37 * * * *"
+    - cron: "23 17 * * *"
   workflow_dispatch:
-    inputs:
-      test_mode:
-        description: "Widen seat zone (any row, cols 1-100) to verify pipeline"
-        type: boolean
-        default: false
+
+permissions:
+  actions: read
+  contents: read
 
 concurrency:
-  group: amc-seat-watcher-broad
+  group: amc-seat-watcher-health
   cancel-in-progress: false
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -30,10 +27,9 @@ jobs:
 
       - run: npm ci
 
-      - run: node amc-node.js
+      - run: node health-check.js
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
-          TEST_MODE: ${{ inputs.test_mode }}
-          SCAN_MODE: broad

@@ -2,7 +2,12 @@
 
 Watches AMC Lincoln Square 13 (NYC) for good seats at IMAX 70mm showings and emails a notification the moment seats open up.
 
-Runs on **GitHub Actions** (free) every ~10 minutes. When a showtime has a seat in the target zone, each recipient gets an email with the count, seat numbers, and a booking link.
+It uses two complementary **GitHub Actions** scans:
+
+- **Broad scan:** checks every Odyssey date every 30 minutes to discover dates and showtimes.
+- **Urgent scan:** checks only showtimes inside the next 48 hours. The desired cadence is every 10 minutes when a showing is 12–48 hours away, every 5 minutes at 4–12 hours, and every 2 minutes inside four hours.
+
+When a showtime has a seat in the target zone, each recipient gets an email with the countdown, seat count, seat numbers, and a direct booking link.
 
 AMC navigation is retried up to three times using a fresh browser session. Date pages and seat maps are scanned in conservative batches of three to keep a full scan comfortably below the scheduling interval without sending an excessive burst of requests. Email delivery remains sequential.
 
@@ -20,6 +25,15 @@ If an individual seat map still fails after all retries, the watcher continues p
 - **Window:** every AMC-exposed date from July 16–August 31, 2026, plus the rolling next 14 days
 - **Threshold:** email sent when a showtime has **1+ seat** in the zone
 - **Recipients:** set in the repo's `NOTIFY_EMAIL` secret (comma-separated)
+
+### Scan modes
+
+| Mode | Scope | Workflow |
+| --- | --- | --- |
+| Broad | All configured Odyssey dates | `check-seats.yml` |
+| Urgent | Unstarted showtimes within 48 hours | `check-urgent-seats.yml` |
+
+The urgent workflow can be dispatched every two minutes without scanning every seat map every time. The script uses the clock to select the showtimes whose 2-, 5-, or 10-minute tier is due. It stops checking a showtime once its printed start time passes. All time calculations use `America/New_York`, regardless of the GitHub runner's time zone.
 
 ---
 
@@ -62,7 +76,7 @@ Or do it in the UI: **Settings → Secrets and variables → Actions → `NOTIFY
 
 ## How to trigger a run manually (test)
 
-**Quick test with a widened seat zone** (this will definitely find and email seats, useful for confirming the pipeline works):
+**Quick broad test with a widened seat zone** (likely to find and email seats, useful for confirming the pipeline works):
 
 ```bash
 gh workflow run check-seats.yml --repo coltonrusch/amc-lincoln-square-seat-watcher -f test_mode=true
@@ -74,7 +88,42 @@ gh workflow run check-seats.yml --repo coltonrusch/amc-lincoln-square-seat-watch
 gh workflow run check-seats.yml --repo coltonrusch/amc-lincoln-square-seat-watcher
 ```
 
-Or use the GitHub UI: **Actions → Check AMC Seats → Run workflow**.
+**Urgent run checking every showtime inside 48 hours immediately:**
+
+```bash
+gh workflow run check-urgent-seats.yml --repo coltonrusch/amc-lincoln-square-seat-watcher -f force_all_due=true
+```
+
+Or use the GitHub UI: **Actions → Broad AMC Seat Scan** or **Urgent AMC Seat Scan → Run workflow**.
+
+---
+
+## Reliable two-minute urgent scheduling
+
+GitHub's built-in scheduler cannot run more often than every five minutes and is best-effort. The urgent workflow includes a five-minute GitHub fallback, but the final-four-hour tier needs an external scheduler to dispatch it every two minutes.
+
+Configure the external scheduler to make this request every two minutes:
+
+```text
+POST https://api.github.com/repos/coltonrusch/amc-lincoln-square-seat-watcher/actions/workflows/check-urgent-seats.yml/dispatches
+```
+
+Request body:
+
+```json
+{"ref":"main"}
+```
+
+Headers:
+
+```text
+Accept: application/vnd.github+json
+Authorization: Bearer YOUR_FINE_GRAINED_TOKEN
+X-GitHub-Api-Version: 2022-11-28
+Content-Type: application/json
+```
+
+Use a fine-grained GitHub token limited to this repository with **Actions: Read and write** access. The workflows prevent overlapping broad runs and overlapping urgent runs, so slow invocations cannot build an unbounded same-mode queue.
 
 ---
 
@@ -100,21 +149,22 @@ Or use the GitHub UI: **Actions → Check AMC Seats → Run workflow**.
   ```bash
   git commit --allow-empty -m "Keep scheduler alive" && git push
   ```
-- GitHub's scheduler is best-effort: scheduled runs can be delayed or dropped during platform load. The watcher uses an offset ten-minute schedule to reduce this, but exact timing is not guaranteed.
+- GitHub's scheduler is best-effort: scheduled runs can be delayed or dropped during platform load. Use the external dispatch above for the time-sensitive urgent scan.
 
 **"How will I know if the watcher breaks?"**
 - The job fails when AMC returns no dates or no showtime links, when the scan throws an error, when it times out, or when Gmail rejects an alert.
 - Enable GitHub's failed-workflow notifications at **GitHub → Settings → Notifications → System → Actions → Email → Only notify for failed workflows**.
 - Failed runs and their detailed logs also appear in the repository's **Actions** tab.
+- A daily health workflow stays silent when healthy. It emails if the broad scan has no success for three hours or the urgent scan has no success for 90 minutes, then marks itself failed as well.
 
-**"The scan is hitting the 15-min timeout"**
+**"The broad scan is hitting the 15-min timeout"**
 - Lower `MAX_DATES` in `amc-node.js` (e.g., to 7).
 
 ---
 
 ## How it works (one paragraph)
 
-GitHub Actions spins up a fresh Ubuntu VM every 10 minutes (and on every push to `main`). It runs `amc-node.js`, which uses headless Chrome via Puppeteer to open the AMC showtimes page, click through each date, identify IMAX 70mm showings of the movies in the watch list, then loads each showtime's seat map and counts available seats in the target zone. If a showtime has at least one seat, it sends an email immediately via Gmail SMTP (using an app password) to every recipient in `NOTIFY_EMAIL`. The VM is then torn down — nothing persists between runs.
+GitHub Actions spins up a fresh Ubuntu VM for each scan. `amc-node.js` uses headless Chrome via Puppeteer to open AMC, identify IMAX 70mm Odyssey showings, and count available seats in the target zone. Broad mode covers all configured dates; urgent mode limits work to upcoming showtimes and applies the tiered clock. If a showtime has at least one target seat, it emails every recipient in `NOTIFY_EMAIL`. The VM is then torn down—nothing persists between runs.
 
 ---
 

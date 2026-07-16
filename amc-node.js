@@ -28,6 +28,9 @@ const THEATER_URL =
   "https://www.amctheatres.com/movie-theatres/new-york-city/amc-lincoln-square-13/showtimes";
 
 const TEST_MODE = process.env.TEST_MODE === "true" || process.env.TEST_MODE === "1";
+const SCAN_MODE = process.env.SCAN_MODE === "urgent" ? "urgent" : "broad";
+const FORCE_URGENT_SCAN =
+  process.env.FORCE_URGENT_SCAN === "true" || process.env.FORCE_URGENT_SCAN === "1";
 
 const MAX_DATES = 14;
 const DATE_SCAN_CONCURRENCY = 3;
@@ -41,6 +44,9 @@ const ADVANCE_DATE_WINDOWS = [
   },
 ];
 const MIN_SEATS_FOR_EMAIL = 1;
+const THEATER_TIME_ZONE = "America/New_York";
+const URGENT_WINDOW_MINUTES = 48 * 60;
+const URGENT_BASE_INTERVAL_MINUTES = 2;
 
 const TARGET_ROWS = TEST_MODE
   ? ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P"]
@@ -76,6 +82,86 @@ function parseShowtimeMinutes(timeText) {
   if (ampm === "pm" && h !== 12) h += 12;
   if (ampm === "am" && h === 12) h = 0;
   return h * 60 + min;
+}
+
+function getZonedDateParts(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  return Object.fromEntries(
+    parts.filter(({ type }) => type !== "literal").map(({ type, value }) => [type, Number(value)])
+  );
+}
+
+function parseShowtimeDateTime(dateText, timeText) {
+  const minutes = parseShowtimeMinutes(timeText);
+  if (minutes === null) return null;
+
+  const [year, month, day] = dateText.split("-").map(Number);
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const desiredUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let instant = desiredUtc;
+
+  // Convert a wall-clock time at the theater into an instant. Repeating the
+  // adjustment handles both standard/daylight offsets without hard-coding EDT.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const observed = getZonedDateParts(new Date(instant), THEATER_TIME_ZONE);
+    const observedUtc = Date.UTC(
+      observed.year,
+      observed.month - 1,
+      observed.day,
+      observed.hour,
+      observed.minute,
+      observed.second
+    );
+    instant += desiredUtc - observedUtc;
+  }
+
+  return new Date(instant);
+}
+
+function localDateString(date) {
+  const { year, month, day } = getZonedDateParts(date, THEATER_TIME_ZONE);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function urgentDateStrings(now) {
+  const dates = [];
+  for (let offset = 0; offset <= 2; offset++) {
+    dates.push(localDateString(new Date(now.getTime() + offset * 24 * 60 * 60 * 1000)));
+  }
+  return [...new Set(dates)];
+}
+
+function urgentCadenceMinutes(minutesUntil) {
+  if (minutesUntil <= 4 * 60) return 2;
+  if (minutesUntil <= 12 * 60) return 5;
+  return 10;
+}
+
+function isUrgentScanDue(minutesUntil, now = new Date()) {
+  if (FORCE_URGENT_SCAN) return true;
+  const cadence = urgentCadenceMinutes(minutesUntil);
+  const currentMinute = Math.floor(now.getTime() / 60000);
+  return currentMinute % cadence < URGENT_BASE_INTERVAL_MINUTES;
+}
+
+function formatCountdown(minutesUntil) {
+  const totalMinutes = Math.max(0, Math.ceil(minutesUntil));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
 }
 
 async function withFreshPageRetry(browser, label, task) {
@@ -268,6 +354,7 @@ async function getAvailableSeats(browser, showtimeId) {
 
 async function runFullScan(browser) {
   log("Scanning AMC Lincoln Square 13 — IMAX 70mm");
+  log(`Mode: ${SCAN_MODE}`);
   log(`Target: ${MOVIES.join(", ")}`);
   log(`Seats: rows ${TARGET_ROWS.join("/")} cols ${TARGET_COL_MIN}-${TARGET_COL_MAX}`);
 
@@ -276,14 +363,27 @@ async function runFullScan(browser) {
     throw new Error("AMC returned no selectable dates; the site may be unavailable or its markup may have changed.");
   }
 
-  const rollingDates = allDates.slice(0, MAX_DATES);
-  const advanceDates = allDates.filter((date) =>
-    ADVANCE_DATE_WINDOWS.some(({ start, end }) => date >= start && date <= end)
-  );
-  const dates = [...new Set([...rollingDates, ...advanceDates])].sort();
-  log(`Scanning ${dates.length} of ${allDates.length} dates (${rollingDates.length} rolling, ${advanceDates.length} advance-window)`);
-  for (const { label, start, end } of ADVANCE_DATE_WINDOWS) {
-    log(`Advance window: ${label} (${start} -> ${end})`);
+  const scanStartedAt = new Date();
+  let dates;
+
+  if (SCAN_MODE === "urgent") {
+    const urgentDates = new Set(urgentDateStrings(scanStartedAt));
+    dates = allDates.filter((date) => urgentDates.has(date));
+    log(`Scanning ${dates.length} near-term date(s): ${dates.join(", ")}`);
+  } else {
+    const rollingDates = allDates.slice(0, MAX_DATES);
+    const advanceDates = allDates.filter((date) =>
+      ADVANCE_DATE_WINDOWS.some(({ start, end }) => date >= start && date <= end)
+    );
+    dates = [...new Set([...rollingDates, ...advanceDates])].sort();
+    log(`Scanning ${dates.length} of ${allDates.length} dates (${rollingDates.length} rolling, ${advanceDates.length} advance-window)`);
+    for (const { label, start, end } of ADVANCE_DATE_WINDOWS) {
+      log(`Advance window: ${label} (${start} -> ${end})`);
+    }
+  }
+
+  if (dates.length === 0) {
+    throw new Error(`${SCAN_MODE} scan selected no AMC dates; the site's date list may have changed.`);
   }
 
   let emailsSent = 0;
@@ -317,7 +417,32 @@ async function runFullScan(browser) {
         continue;
       }
 
-      showtimesToScan.push({ date, st });
+      if (SCAN_MODE === "urgent") {
+        const startsAt = parseShowtimeDateTime(date, st.time);
+        if (!startsAt) {
+          throw new Error(`Could not parse showtime ${date} ${st.time} (${st.id}).`);
+        }
+
+        const minutesUntil = (startsAt.getTime() - scanStartedAt.getTime()) / 60000;
+        if (minutesUntil <= 0) {
+          log(`    ${st.time} ${st.movie} — already started, skipping`);
+          continue;
+        }
+        if (minutesUntil > URGENT_WINDOW_MINUTES) {
+          log(`    ${st.time} ${st.movie} — outside 48-hour urgent window, skipping`);
+          continue;
+        }
+
+        const cadenceMinutes = urgentCadenceMinutes(minutesUntil);
+        if (!isUrgentScanDue(minutesUntil, scanStartedAt)) {
+          log(`    ${st.time} ${st.movie} — starts in ${formatCountdown(minutesUntil)}; ${cadenceMinutes}m tier not due`);
+          continue;
+        }
+
+        showtimesToScan.push({ date, st, startsAt, minutesUntil, cadenceMinutes });
+      } else {
+        showtimesToScan.push({ date, st });
+      }
     }
   }
 
@@ -329,9 +454,11 @@ async function runFullScan(browser) {
   const settledSeatResults = await mapWithConcurrencySettled(
     showtimesToScan,
     SEAT_SCAN_CONCURRENCY,
-    async ({ date, st }) => ({
+    async ({ date, st, startsAt, cadenceMinutes }) => ({
       date,
       st,
+      startsAt,
+      cadenceMinutes,
       seats: await getAvailableSeats(browser, st.id),
     })
   );
@@ -348,6 +475,8 @@ async function runFullScan(browser) {
     }
 
     const { date, st, seats } = result.value;
+    const minutesUntil = (result.value.startsAt?.getTime() - Date.now()) / 60000;
+    const countdown = Number.isFinite(minutesUntil) ? formatCountdown(minutesUntil) : null;
     if (seats.length === 0) {
       log(`    ${st.time} ${st.movie} — no target seats`);
     } else if (seats.length < MIN_SEATS_FOR_EMAIL) {
@@ -355,11 +484,14 @@ async function runFullScan(browser) {
     } else {
       totalHits++;
       log(`    ${st.time} ${st.movie} — ${seats.length} seats: ${seats.join(", ")} → emailing`);
-      const subject = `AMC IMAX 70mm: ${seats.length} seats — ${st.movie} · ${date} ${st.time}`;
+      const subject = countdown
+        ? `AMC in ${countdown}: ${seats.length} seats — ${st.movie} · ${date} ${st.time}`
+        : `AMC IMAX 70mm: ${seats.length} seats — ${st.movie} · ${date} ${st.time}`;
       const html = `
 <div style="font-family:system-ui,sans-serif;">
   <h2 style="margin:0 0 8px 0;">${st.movie}</h2>
   <p style="margin:0 0 8px 0;color:#555;">${date} &middot; ${st.time}</p>
+  ${countdown ? `<p style="margin:0 0 8px 0;"><strong>Starts in ${countdown}</strong></p>` : ""}
   <p style="margin:0 0 8px 0;"><strong>${seats.length} seat${seats.length === 1 ? "" : "s"} available</strong> in target zone (rows ${TARGET_ROWS.join("/")}, cols ${TARGET_COL_MIN}-${TARGET_COL_MAX}):</p>
   <p style="margin:0 0 12px 0;font-family:ui-monospace,monospace;">${seats.join(", ")}</p>
   <p style="margin:0;"><a href="https://www.amctheatres.com/showtimes/${st.id}">Book now →</a></p>
@@ -410,4 +542,14 @@ async function main() {
   process.exit(exitCode);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  formatCountdown,
+  isUrgentScanDue,
+  parseShowtimeDateTime,
+  urgentCadenceMinutes,
+  urgentDateStrings,
+};

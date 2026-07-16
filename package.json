@@ -4,7 +4,8 @@
   "description": "Watch AMC Lincoln Square IMAX 70mm for The Odyssey seats.",
   "private": true,
   "scripts": {
-    "start": "node amc-node.js"
+    "start": "node amc-node.js",
+    "test": "node --test"
   },
   "license": "ISC",
   "dependencies": {
