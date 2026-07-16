@@ -36,6 +36,7 @@ const MAX_DATES = 14;
 const DATE_SCAN_CONCURRENCY = 3;
 const SEAT_SCAN_CONCURRENCY = 3;
 const NAVIGATION_ATTEMPTS = 3;
+const ENTRY_NAVIGATION_ATTEMPTS = 5;
 const ADVANCE_DATE_WINDOWS = [
   {
     label: "The Odyssey",
@@ -164,10 +165,10 @@ function formatCountdown(minutesUntil) {
   return `${hours}h ${minutes}m`;
 }
 
-async function withFreshPageRetry(browser, label, task) {
+async function withFreshPageRetry(browser, label, task, attempts = NAVIGATION_ATTEMPTS) {
   let lastError;
 
-  for (let attempt = 1; attempt <= NAVIGATION_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
     const context = await browser.createBrowserContext();
     const page = await context.newPage();
 
@@ -175,9 +176,10 @@ async function withFreshPageRetry(browser, label, task) {
       return await task(page);
     } catch (err) {
       lastError = err;
-      if (attempt < NAVIGATION_ATTEMPTS) {
-        const delay = 1000 * 2 ** (attempt - 1) + Math.random() * 1000;
-        log(`${label} failed (attempt ${attempt}/${NAVIGATION_ATTEMPTS}): ${err.message} — retrying`);
+      if (attempt < attempts) {
+        const baseDelay = err.message.includes("ERR_TOO_MANY_REDIRECTS") ? 5000 : 1000;
+        const delay = Math.min(30000, baseDelay * 2 ** (attempt - 1)) + Math.random() * 1000;
+        log(`${label} failed (attempt ${attempt}/${attempts}): ${err.message} — retrying`);
         await sleep(delay);
       }
     } finally {
@@ -185,7 +187,7 @@ async function withFreshPageRetry(browser, label, task) {
     }
   }
 
-  throw new Error(`${label} failed after ${NAVIGATION_ATTEMPTS} attempts: ${lastError.message}`);
+  throw new Error(`${label} failed after ${attempts} attempts: ${lastError.message}`);
 }
 
 async function navigateToListings(page, url) {
@@ -262,6 +264,7 @@ async function getShowtimes(browser, date) {
   const url = date ? `${THEATER_URL}?date=${date}` : THEATER_URL;
   return withFreshPageRetry(browser, `Showtimes for ${date}`, async (page) => {
     await navigateToListings(page, url);
+    await page.waitForSelector("a[href*='/showtimes/']", { timeout: 15000 });
 
     return page.evaluate((movieTerms) => {
       const links = document.querySelectorAll("a[href*='/showtimes/']");
@@ -314,7 +317,7 @@ async function getAvailableDates(browser) {
         .map((o) => o.value)
         .filter((v) => v && /^\d{4}-\d{2}-\d{2}$/.test(v));
     });
-  });
+  }, ENTRY_NAVIGATION_ATTEMPTS);
 }
 
 async function getAvailableSeats(browser, showtimeId) {
