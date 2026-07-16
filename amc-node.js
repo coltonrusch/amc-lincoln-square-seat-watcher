@@ -74,7 +74,7 @@ function log(msg) {
 }
 
 function parseShowtimeMinutes(timeText) {
-  const m = timeText.trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+  const m = timeText.trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)\b/i);
   if (!m) return null;
   let h = parseInt(m[1], 10);
   const min = parseInt(m[2], 10);
@@ -273,7 +273,9 @@ async function getShowtimes(browser, date) {
         if (!idMatch) continue;
 
         const showtimeId = idMatch[1];
-        const timeText = link.innerText.trim().split("\n")[0];
+        const rawTimeText = link.innerText.trim().split("\n")[0];
+        const timeMatch = rawTimeText.match(/\b\d{1,2}:\d{2}\s*(?:am|pm)\b/i);
+        const timeText = timeMatch ? timeMatch[0] : rawTimeText;
         const isSoldOut = link.innerText.includes("Sold Out");
 
         const formatLi = link.closest("ul")?.closest("li");

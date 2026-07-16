@@ -18,6 +18,10 @@ test("parses New York showtimes with the correct seasonal UTC offset", () => {
     parseShowtimeDateTime("2026-01-16", "10:00am").toISOString(),
     "2026-01-16T15:00:00.000Z"
   );
+  assert.equal(
+    parseShowtimeDateTime("2026-07-17", "7:00am UP TO 15% OFF, Almost Full").toISOString(),
+    "2026-07-17T11:00:00.000Z"
+  );
 });
 
 test("selects all local dates that can intersect the next 48 hours", () => {
