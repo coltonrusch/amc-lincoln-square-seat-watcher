@@ -172,7 +172,7 @@ GitHub Actions spins up a fresh Ubuntu VM for each scan. `amc-node.js` uses head
 
 | Secret | What it is |
 | --- | --- |
-| `GMAIL_USER` | Gmail address to send from (e.g., `divyanshukhare@gmail.com`) |
+| `GMAIL_USER` | Gmail address to send from |
 | `GMAIL_APP_PASSWORD` | 16-char Gmail app password (generate at https://myaccount.google.com/apppasswords — requires 2FA) |
 | `NOTIFY_EMAIL` | Comma-separated list of recipient addresses |
 
