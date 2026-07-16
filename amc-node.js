@@ -264,7 +264,9 @@ async function getShowtimes(browser, date) {
   const url = date ? `${THEATER_URL}?date=${date}` : THEATER_URL;
   return withFreshPageRetry(browser, `Showtimes for ${date}`, async (page) => {
     await navigateToListings(page, url);
-    await page.waitForSelector("a[href*='/showtimes/']", { timeout: 15000 });
+    if (SCAN_MODE === "urgent") {
+      await page.waitForSelector("a[href*='/showtimes/']", { timeout: 15000 });
+    }
 
     return page.evaluate((movieTerms) => {
       const links = document.querySelectorAll("a[href*='/showtimes/']");
