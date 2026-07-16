@@ -20,8 +20,6 @@ puppeteer.use(StealthPlugin());
 
 const MOVIES = [
   "the odyssey",
-  "dune: part three",
-  "dune part three",
 ];
 
 const MIN_SHOWTIME_MINUTES = 0;
@@ -37,9 +35,9 @@ const SEAT_SCAN_CONCURRENCY = 3;
 const NAVIGATION_ATTEMPTS = 3;
 const ADVANCE_DATE_WINDOWS = [
   {
-    label: "Dune: Part Three",
-    start: "2026-12-17",
-    end: "2027-01-10",
+    label: "The Odyssey",
+    start: "2026-07-16",
+    end: "2026-08-31",
   },
 ];
 const MIN_SEATS_FOR_EMAIL = 1;

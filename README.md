@@ -14,10 +14,10 @@ If an individual seat map still fails after all retries, the watcher continues p
 
 - **Theater:** AMC Lincoln Square 13
 - **Format:** IMAX 70mm
-- **Movies:** The Odyssey and Dune: Part Three
+- **Movies:** The Odyssey
 - **Seats:** rows F/G/H/J, columns 9–39 (the center "sweet spot")
 - **Showtimes:** any time
-- **Window:** next 14 days, plus December 17, 2026–January 10, 2027 for Dune advance sales
+- **Window:** every AMC-exposed date from July 16–August 31, 2026, plus the rolling next 14 days
 - **Threshold:** email sent when a showtime has **1+ seat** in the zone
 - **Recipients:** set in the repo's `NOTIFY_EMAIL` secret (comma-separated)
 
@@ -29,7 +29,7 @@ All tweakable settings live at the top of [`amc-node.js`](./amc-node.js). Edit t
 
 | Want to change… | Edit this |
 | --- | --- |
-| Which movies to watch | `MOVIES` array (lowercase, one entry per title — add variants like `"dune: part three"` AND `"dune part three"` to handle punctuation) |
+| Which movies to watch | `MOVIES` array (lowercase, one entry per title; include punctuation variants when needed) |
 | Which rows count as good | `TARGET_ROWS` |
 | Which columns count as good | `TARGET_COL_MIN`, `TARGET_COL_MAX` |
 | Earliest showtime | `MIN_SHOWTIME_MINUTES` (e.g., `13 * 60` = 1:00pm) |
