@@ -20,7 +20,7 @@ If an individual seat map still fails after all retries, the watcher continues p
 - **Theater:** AMC Lincoln Square 13
 - **Format:** IMAX 70mm
 - **Movies:** The Odyssey
-- **Seats:** rows F/G/H/J/K/L/M, columns 9–39 (good immersive through rear-center options)
+- **Seats:** rows F/G/H/J/K/L, columns 9–39 (good immersive through rear-center options; row M special/flexible seating is excluded)
 - **Showtimes:** any time
 - **Window:** every AMC-exposed date from July 16–August 31, 2026, plus the rolling next 14 days
 - **Threshold:** email sent when a showtime has **1+ seat** in the zone

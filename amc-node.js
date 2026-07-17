@@ -51,7 +51,7 @@ const URGENT_BASE_INTERVAL_MINUTES = 2;
 
 const TARGET_ROWS = TEST_MODE
   ? ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P"]
-  : ["F", "G", "H", "J", "K", "L", "M"];
+  : ["F", "G", "H", "J", "K", "L"];
 const TARGET_COL_MIN = TEST_MODE ? 1 : 9;
 const TARGET_COL_MAX = TEST_MODE ? 100 : 39;
 
