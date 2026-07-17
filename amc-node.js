@@ -51,7 +51,7 @@ const URGENT_BASE_INTERVAL_MINUTES = 2;
 
 const TARGET_ROWS = TEST_MODE
   ? ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P"]
-  : ["F", "G", "H", "J"];
+  : ["F", "G", "H", "J", "K", "L", "M"];
 const TARGET_COL_MIN = TEST_MODE ? 1 : 9;
 const TARGET_COL_MAX = TEST_MODE ? 100 : 39;
 
@@ -193,6 +193,21 @@ function classifyAvailableSeats(
     targetSeats: sortSeats(targetSeats),
     otherSeats: sortSeats(otherSeats),
   };
+}
+
+function formatSeatCountsByRow(seats) {
+  const counts = new Map();
+  for (const seat of seats) {
+    const match = seat.match(/^([A-Z])\d+$/);
+    if (!match) continue;
+    counts.set(match[1], (counts.get(match[1]) || 0) + 1);
+  }
+
+  if (counts.size === 0) return "none";
+  return [...counts.entries()]
+    .sort(([rowA], [rowB]) => rowA.localeCompare(rowB))
+    .map(([row, count]) => `${row}=${count}`)
+    .join(", ");
 }
 
 function sanitizeDiagnosticText(text, maxLength = 240) {
@@ -553,6 +568,8 @@ async function runFullScan(browser) {
   let successfulSeatMaps = 0;
   let targetSeatCount = 0;
   let otherSeatCount = 0;
+  const observedTargetSeats = [];
+  const observedOtherSeats = [];
 
   for (let index = 0; index < settledSeatResults.length; index++) {
     const result = settledSeatResults[index];
@@ -568,6 +585,8 @@ async function runFullScan(browser) {
     const seats = seatResult.targetSeats;
     targetSeatCount += seats.length;
     otherSeatCount += seatResult.otherSeats.length;
+    observedTargetSeats.push(...seats);
+    observedOtherSeats.push(...seatResult.otherSeats);
     const minutesUntil = (result.value.startsAt?.getTime() - Date.now()) / 60000;
     const countdown = Number.isFinite(minutesUntil) ? formatCountdown(minutesUntil) : null;
     if (seats.length === 0) {
@@ -604,6 +623,8 @@ async function runFullScan(browser) {
       `${targetSeatCount} target-zone seats and ${otherSeatCount} seats outside target zone observed; ` +
       `${emailsSent} email(s) sent.`
   );
+  log(`Target-zone seat observations by row: ${formatSeatCountsByRow(observedTargetSeats)}.`);
+  log(`Outside-target seat observations by row: ${formatSeatCountsByRow(observedOtherSeats)}.`);
 
   if (totalHits === 0) {
     log(`No showtimes with ${MIN_SEATS_FOR_EMAIL}+ target seats found this scan.`);
@@ -652,6 +673,7 @@ if (require.main === module) {
 module.exports = {
   classifyAvailableSeats,
   formatCountdown,
+  formatSeatCountsByRow,
   isUrgentScanDue,
   parseShowtimeDateTime,
   sanitizeDiagnosticText,

@@ -9,7 +9,7 @@ It uses two complementary **GitHub Actions** scans:
 
 When a showtime has a seat in the target zone, each recipient gets an email with the countdown, seat count, seat numbers, and a direct booking link.
 
-AMC navigation is retried up to three times using a fresh browser session. Date pages and seat maps are scanned in conservative batches of three to keep a full scan comfortably below the scheduling interval without sending an excessive burst of requests. Email delivery remains sequential. Every run logs how many target-zone and non-target seats it observed, providing a continuous check that seat parsing still works.
+AMC navigation is retried up to three times using a fresh browser session. Date pages and seat maps are scanned in conservative batches of three to keep a full scan comfortably below the scheduling interval without sending an excessive burst of requests. Email delivery remains sequential. Every run logs how many target-zone and non-target seats it observed, including aggregate row-by-row counts, providing a continuous check that seat parsing still works.
 
 If an individual seat map still fails after all retries, the watcher continues processing every other showtime and sends any qualifying alerts it can. The workflow is marked failed only after that processing finishes, so a partial AMC outage cannot suppress unrelated seat alerts.
 
@@ -20,7 +20,7 @@ If an individual seat map still fails after all retries, the watcher continues p
 - **Theater:** AMC Lincoln Square 13
 - **Format:** IMAX 70mm
 - **Movies:** The Odyssey
-- **Seats:** rows F/G/H/J, columns 9–39 (the center "sweet spot")
+- **Seats:** rows F/G/H/J/K/L/M, columns 9–39 (good immersive through rear-center options)
 - **Showtimes:** any time
 - **Window:** every AMC-exposed date from July 16–August 31, 2026, plus the rolling next 14 days
 - **Threshold:** email sent when a showtime has **1+ seat** in the zone

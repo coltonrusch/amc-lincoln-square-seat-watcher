@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   classifyAvailableSeats,
   formatCountdown,
+  formatSeatCountsByRow,
   isUrgentScanDue,
   parseShowtimeDateTime,
   sanitizeDiagnosticText,
@@ -19,6 +20,11 @@ test("separates target seats from available seats elsewhere", () => {
       otherSeats: ["A30", "H40"],
     }
   );
+});
+
+test("summarizes repeated seat observations by row", () => {
+  assert.equal(formatSeatCountsByRow(["A30", "K22", "A29", "bad", "M20"]), "A=2, K=1, M=1");
+  assert.equal(formatSeatCountsByRow([]), "none");
 });
 
 test("sanitizes and bounds diagnostic excerpts", () => {
