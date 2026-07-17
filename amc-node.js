@@ -165,6 +165,89 @@ function formatCountdown(minutesUntil) {
   return `${hours}h ${minutes}m`;
 }
 
+function sortSeats(seats) {
+  return [...seats].sort((a, b) => {
+    if (a[0] !== b[0]) return a[0].localeCompare(b[0]);
+    return parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10);
+  });
+}
+
+function classifyAvailableSeats(
+  seats,
+  rows = TARGET_ROWS,
+  colMin = TARGET_COL_MIN,
+  colMax = TARGET_COL_MAX
+) {
+  const targetSeats = [];
+  const otherSeats = [];
+
+  for (const seat of seats) {
+    const match = seat.match(/^([A-Z])(\d+)$/);
+    if (!match) continue;
+    const row = match[1];
+    const col = parseInt(match[2], 10);
+    (rows.includes(row) && col >= colMin && col <= colMax ? targetSeats : otherSeats).push(seat);
+  }
+
+  return {
+    targetSeats: sortSeats(targetSeats),
+    otherSeats: sortSeats(otherSeats),
+  };
+}
+
+function sanitizeDiagnosticText(text, maxLength = 240) {
+  return String(text || "")
+    .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[email redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+async function logPageDiagnostics(page, label) {
+  try {
+    const rawUrl = page.url();
+    let safeUrl = rawUrl;
+    try {
+      const parsed = new URL(rawUrl);
+      safeUrl = `${parsed.origin}${parsed.pathname}`;
+    } catch {
+      // Keep non-standard browser URLs such as about:blank as-is.
+    }
+
+    const details = await page.evaluate(() => {
+      const bodyText = document.body?.innerText || "";
+      const lower = bodyText.toLowerCase();
+      const markers = [
+        ["sold-out", "sold out"],
+        ["unavailable", "unavailable"],
+        ["access-denied", "access denied"],
+        ["forbidden", "forbidden"],
+        ["captcha", "captcha"],
+        ["human-check", "verify you are human"],
+        ["not-found", "not found"],
+        ["site-error", "something went wrong"],
+      ];
+      return {
+        title: document.title,
+        excerpt: bodyText,
+        markers: markers.filter(([, phrase]) => lower.includes(phrase)).map(([name]) => name),
+        seatInputs: document.querySelectorAll("input[aria-label]").length,
+        showtimeLinks: document.querySelectorAll("a[href*='/showtimes/']").length,
+        dateSelectors: document.querySelectorAll('select[name="date"]').length,
+      };
+    });
+
+    log(
+      `${label} diagnostics: status ${page.__navigationStatus ?? "unknown"}; ` +
+        `url ${safeUrl}; title "${sanitizeDiagnosticText(details.title, 120)}"; ` +
+        `selectors dates=${details.dateSelectors}, showtimes=${details.showtimeLinks}, seats=${details.seatInputs}; ` +
+        `markers=${details.markers.join(",") || "none"}; excerpt="${sanitizeDiagnosticText(details.excerpt)}"`
+    );
+  } catch (diagnosticError) {
+    log(`${label} diagnostics unavailable: ${diagnosticError.message}`);
+  }
+}
+
 async function withFreshPageRetry(browser, label, task, attempts = NAVIGATION_ATTEMPTS) {
   let lastError;
 
@@ -176,6 +259,9 @@ async function withFreshPageRetry(browser, label, task, attempts = NAVIGATION_AT
       return await task(page);
     } catch (err) {
       lastError = err;
+      if (attempt === attempts) {
+        await logPageDiagnostics(page, label);
+      }
       if (attempt < attempts) {
         const baseDelay = err.message.includes("ERR_TOO_MANY_REDIRECTS") ? 5000 : 1000;
         const delay = Math.min(30000, baseDelay * 2 ** (attempt - 1)) + Math.random() * 1000;
@@ -191,7 +277,8 @@ async function withFreshPageRetry(browser, label, task, attempts = NAVIGATION_AT
 }
 
 async function navigateToListings(page, url) {
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  page.__navigationStatus = response?.status();
   await page.waitForSelector('select[name="date"]', { timeout: 30000 });
   await sleep(1500);
 }
@@ -325,35 +412,27 @@ async function getAvailableDates(browser) {
 async function getAvailableSeats(browser, showtimeId) {
   const url = `https://www.amctheatres.com/showtimes/${showtimeId}`;
   return withFreshPageRetry(browser, `Seat map ${showtimeId}`, async (page) => {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    page.__navigationStatus = response?.status();
     await page.waitForSelector("input[aria-label]", { timeout: 30000 });
     await sleep(1500);
 
-    return page.evaluate(
-      (rows, colMin, colMax) => {
-        const inputs = document.querySelectorAll("input[aria-label]");
-        const available = [];
-        for (const input of inputs) {
-          const label = input.getAttribute("aria-label");
-          if (label.startsWith("Occupied")) continue;
-          const match = label.match(/([A-Z])(\d+)$/);
-          if (!match) continue;
-          const row = match[1];
-          const col = parseInt(match[2], 10);
-          if (rows.includes(row) && col >= colMin && col <= colMax) {
-            available.push(row + col);
-          }
-        }
-        available.sort((a, b) => {
-          if (a[0] !== b[0]) return a[0].localeCompare(b[0]);
-          return parseInt(a.slice(1)) - parseInt(b.slice(1));
-        });
-        return available;
-      },
-      TARGET_ROWS,
-      TARGET_COL_MIN,
-      TARGET_COL_MAX
-    );
+    const availableSeats = await page.evaluate(() => {
+      const inputs = document.querySelectorAll("input[aria-label]");
+      const available = [];
+      for (const input of inputs) {
+        const label = input.getAttribute("aria-label");
+        if (label.startsWith("Occupied")) continue;
+        const match = label.match(/([A-Z])(\d+)$/);
+        if (!match) continue;
+        const row = match[1];
+        const col = parseInt(match[2], 10);
+        available.push(row + col);
+      }
+      return available;
+    });
+
+    return classifyAvailableSeats(availableSeats);
   });
 }
 
@@ -471,6 +550,9 @@ async function runFullScan(browser) {
   );
 
   const seatFailures = [];
+  let successfulSeatMaps = 0;
+  let targetSeatCount = 0;
+  let otherSeatCount = 0;
 
   for (let index = 0; index < settledSeatResults.length; index++) {
     const result = settledSeatResults[index];
@@ -481,11 +563,18 @@ async function runFullScan(browser) {
       continue;
     }
 
-    const { date, st, seats } = result.value;
+    successfulSeatMaps++;
+    const { date, st, seats: seatResult } = result.value;
+    const seats = seatResult.targetSeats;
+    targetSeatCount += seats.length;
+    otherSeatCount += seatResult.otherSeats.length;
     const minutesUntil = (result.value.startsAt?.getTime() - Date.now()) / 60000;
     const countdown = Number.isFinite(minutesUntil) ? formatCountdown(minutesUntil) : null;
     if (seats.length === 0) {
-      log(`    ${st.time} ${st.movie} — no target seats`);
+      log(
+        `    ${st.time} ${st.movie} — no target seats ` +
+          `(${seatResult.otherSeats.length} available outside target zone)`
+      );
     } else if (seats.length < MIN_SEATS_FOR_EMAIL) {
       log(`    ${st.time} ${st.movie} — ${seats.length} seat (below ${MIN_SEATS_FOR_EMAIL}-seat threshold): ${seats.join(", ")}`);
     } else {
@@ -508,6 +597,13 @@ async function runFullScan(browser) {
       await sleep(1000 + Math.random() * 1000);
     }
   }
+
+  log(
+    `Scan summary: ${dates.length}/${allDates.length} dates selected; ` +
+      `${showtimesToScan.length} seat maps attempted, ${successfulSeatMaps} succeeded, ${seatFailures.length} failed; ` +
+      `${targetSeatCount} target-zone seats and ${otherSeatCount} seats outside target zone observed; ` +
+      `${emailsSent} email(s) sent.`
+  );
 
   if (totalHits === 0) {
     log(`No showtimes with ${MIN_SEATS_FOR_EMAIL}+ target seats found this scan.`);
@@ -554,9 +650,11 @@ if (require.main === module) {
 }
 
 module.exports = {
+  classifyAvailableSeats,
   formatCountdown,
   isUrgentScanDue,
   parseShowtimeDateTime,
+  sanitizeDiagnosticText,
   urgentCadenceMinutes,
   urgentDateStrings,
 };

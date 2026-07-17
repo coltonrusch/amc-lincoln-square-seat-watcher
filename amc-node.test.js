@@ -2,12 +2,32 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  classifyAvailableSeats,
   formatCountdown,
   isUrgentScanDue,
   parseShowtimeDateTime,
+  sanitizeDiagnosticText,
   urgentCadenceMinutes,
   urgentDateStrings,
 } = require("./amc-node");
+
+test("separates target seats from available seats elsewhere", () => {
+  assert.deepEqual(
+    classifyAvailableSeats(["A30", "J20", "F9", "H40", "bad"], ["F", "G", "H", "J"], 9, 39),
+    {
+      targetSeats: ["F9", "J20"],
+      otherSeats: ["A30", "H40"],
+    }
+  );
+});
+
+test("sanitizes and bounds diagnostic excerpts", () => {
+  assert.equal(
+    sanitizeDiagnosticText("  Contact person@example.com\nfor help  ", 40),
+    "Contact [email redacted] for help"
+  );
+  assert.equal(sanitizeDiagnosticText("123456", 3), "123");
+});
 
 test("parses New York showtimes with the correct seasonal UTC offset", () => {
   assert.equal(

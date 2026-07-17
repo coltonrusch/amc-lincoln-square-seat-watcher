@@ -2,7 +2,7 @@ name: Check AMC Watcher Health
 
 on:
   schedule:
-    - cron: "23 17 * * *"
+    - cron: "8,23,38,53 * * * *"
   workflow_dispatch:
 
 permissions:

@@ -4,12 +4,12 @@ Watches AMC Lincoln Square 13 (NYC) for good seats at IMAX 70mm showings and ema
 
 It uses two complementary **GitHub Actions** scans:
 
-- **Broad scan:** checks every Odyssey date every 30 minutes to discover dates and showtimes.
+- **Broad scan:** checks every Odyssey date when dispatched every 30 minutes by the external scheduler.
 - **Urgent scan:** checks only showtimes inside the next 48 hours. The desired cadence is every 10 minutes when a showing is 12–48 hours away, every 5 minutes at 4–12 hours, and every 2 minutes inside four hours.
 
 When a showtime has a seat in the target zone, each recipient gets an email with the countdown, seat count, seat numbers, and a direct booking link.
 
-AMC navigation is retried up to three times using a fresh browser session. Date pages and seat maps are scanned in conservative batches of three to keep a full scan comfortably below the scheduling interval without sending an excessive burst of requests. Email delivery remains sequential.
+AMC navigation is retried up to three times using a fresh browser session. Date pages and seat maps are scanned in conservative batches of three to keep a full scan comfortably below the scheduling interval without sending an excessive burst of requests. Email delivery remains sequential. Every run logs how many target-zone and non-target seats it observed, providing a continuous check that seat parsing still works.
 
 If an individual seat map still fails after all retries, the watcher continues processing every other showtime and sends any qualifying alerts it can. The workflow is marked failed only after that processing finishes, so a partial AMC outage cannot suppress unrelated seat alerts.
 
@@ -98,11 +98,17 @@ Or use the GitHub UI: **Actions → Broad AMC Seat Scan** or **Urgent AMC Seat S
 
 ---
 
-## Reliable two-minute urgent scheduling
+## External scheduling
 
-GitHub's built-in scheduler cannot run more often than every five minutes and is best-effort. The urgent workflow includes a five-minute GitHub fallback, but the final-four-hour tier needs an external scheduler to dispatch it every two minutes.
+GitHub's built-in scheduler is best-effort, so cron-job.org is the sole scheduler for both scan workflows. The final-four-hour tier needs the urgent workflow dispatched every two minutes.
 
-Configure the external scheduler to make this request every two minutes:
+Configure the broad external job every 30 minutes:
+
+```text
+POST https://api.github.com/repos/coltonrusch/amc-lincoln-square-seat-watcher/actions/workflows/check-seats.yml/dispatches
+```
+
+Configure the urgent external job every two minutes:
 
 ```text
 POST https://api.github.com/repos/coltonrusch/amc-lincoln-square-seat-watcher/actions/workflows/check-urgent-seats.yml/dispatches
@@ -155,7 +161,8 @@ Use a fine-grained GitHub token limited to this repository with **Actions: Read 
 - The job fails when AMC returns no dates or no showtime links, when the scan throws an error, when it times out, or when Gmail rejects an alert.
 - Enable GitHub's failed-workflow notifications at **GitHub → Settings → Notifications → System → Actions → Email → Only notify for failed workflows**.
 - Failed runs and their detailed logs also appear in the repository's **Actions** tab.
-- A daily health workflow stays silent when healthy. It emails if the broad scan has no success for three hours or the urgent scan has no success for 90 minutes, then marks itself failed as well.
+- An independent GitHub health workflow runs every 15 minutes and stays silent when healthy. It alerts if the external scheduler stops dispatching (10 minutes for urgent or 75 minutes for broad), or if successful scans stop (30 minutes for urgent or three hours for broad), then marks itself failed as well.
+- A failed page logs its HTTP status, sanitized URL/title/text excerpt, expected-selector counts, and common error markers. No screenshots or other workflow artifacts are stored.
 
 **"The broad scan is hitting the 15-min timeout"**
 - Lower `MAX_DATES` in `amc-node.js` (e.g., to 7).

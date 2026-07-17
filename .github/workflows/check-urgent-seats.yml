@@ -1,10 +1,6 @@
 name: Urgent AMC Seat Scan
 
 on:
-  schedule:
-    # GitHub cron is a five-minute, best-effort fallback. For two-minute checks,
-    # dispatch this workflow from the external scheduler described in README.md.
-    - cron: "1/5 * * * *"
   workflow_dispatch:
     inputs:
       test_mode:

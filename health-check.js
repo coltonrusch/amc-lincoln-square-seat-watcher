@@ -12,8 +12,18 @@ const NOTIFY_EMAILS = (process.env.NOTIFY_EMAIL || "")
   .filter(Boolean);
 
 const WATCHED_WORKFLOWS = [
-  { file: "check-seats.yml", label: "Broad scan", staleAfterMinutes: 180 },
-  { file: "check-urgent-seats.yml", label: "Urgent scan", staleAfterMinutes: 90 },
+  {
+    file: "check-seats.yml",
+    label: "Broad scan",
+    dispatchStaleAfterMinutes: 75,
+    successStaleAfterMinutes: 180,
+  },
+  {
+    file: "check-urgent-seats.yml",
+    label: "Urgent scan",
+    dispatchStaleAfterMinutes: 10,
+    successStaleAfterMinutes: 30,
+  },
 ];
 
 function requireConfiguration() {
@@ -32,7 +42,7 @@ function requireConfiguration() {
   }
 }
 
-async function latestSuccessfulRun(workflowFile) {
+async function latestWorkflowActivity(workflowFile) {
   const url = new URL(
     `https://api.github.com/repos/${REPOSITORY}/actions/workflows/${workflowFile}/runs`
   );
@@ -53,17 +63,24 @@ async function latestSuccessfulRun(workflowFile) {
   }
 
   const { workflow_runs: runs } = await response.json();
+  const latestRun = runs[0];
   const success = runs.find((run) => run.conclusion === "success");
-  return success ? new Date(success.updated_at) : null;
+  return {
+    latestDispatch: latestRun ? new Date(latestRun.created_at) : null,
+    latestSuccess: success ? new Date(success.updated_at) : null,
+  };
 }
 
-async function sendHealthAlert(staleChecks) {
-  const rows = staleChecks
-    .map(({ label, lastSuccess, staleAfterMinutes }) => {
-      const status = lastSuccess
-        ? `Last successful run: ${lastSuccess.toISOString()}`
-        : "No successful run found among the latest 30 completed runs";
-      return `<li><strong>${label}</strong>: ${status} (alert threshold: ${staleAfterMinutes} minutes)</li>`;
+async function sendHealthAlert(unhealthyChecks) {
+  const rows = unhealthyChecks
+    .map(({ label, latestDispatch, latestSuccess, issues }) => {
+      const dispatchStatus = latestDispatch
+        ? `Last dispatch: ${latestDispatch.toISOString()}`
+        : "No completed dispatch found";
+      const successStatus = latestSuccess
+        ? `last success: ${latestSuccess.toISOString()}`
+        : "no success found among the latest 30 completed runs";
+      return `<li><strong>${label}</strong>: ${issues.join("; ")} (${dispatchStatus}; ${successStatus})</li>`;
     })
     .join("");
 
@@ -75,7 +92,7 @@ async function sendHealthAlert(staleChecks) {
   await transporter.sendMail({
     from: `"AMC Watcher" <${GMAIL_USER}>`,
     to: NOTIFY_EMAILS,
-    subject: `AMC watcher health alert: ${staleChecks.map(({ label }) => label).join(" and ")} stale`,
+    subject: `AMC watcher health alert: ${unhealthyChecks.map(({ label }) => label).join(" and ")} unhealthy`,
     html: `
 <div style="font-family:system-ui,sans-serif;">
   <h2>AMC watcher needs attention</h2>
@@ -91,22 +108,38 @@ async function main() {
   const checks = [];
 
   for (const workflow of WATCHED_WORKFLOWS) {
-    const lastSuccess = await latestSuccessfulRun(workflow.file);
-    const ageMinutes = lastSuccess ? (now - lastSuccess.getTime()) / 60000 : Infinity;
-    checks.push({ ...workflow, lastSuccess, ageMinutes });
+    const { latestDispatch, latestSuccess } = await latestWorkflowActivity(workflow.file);
+    const dispatchAgeMinutes = latestDispatch ? (now - latestDispatch.getTime()) / 60000 : Infinity;
+    const successAgeMinutes = latestSuccess ? (now - latestSuccess.getTime()) / 60000 : Infinity;
+    const issues = [];
+    if (dispatchAgeMinutes > workflow.dispatchStaleAfterMinutes) {
+      issues.push(`no dispatch within ${workflow.dispatchStaleAfterMinutes} minutes`);
+    }
+    if (successAgeMinutes > workflow.successStaleAfterMinutes) {
+      issues.push(`no success within ${workflow.successStaleAfterMinutes} minutes`);
+    }
+    checks.push({
+      ...workflow,
+      latestDispatch,
+      latestSuccess,
+      dispatchAgeMinutes,
+      successAgeMinutes,
+      issues,
+    });
     console.log(
-      `${workflow.label}: ${lastSuccess ? `${Math.round(ageMinutes)} minutes since success` : "no success found"}`
+      `${workflow.label}: ${latestDispatch ? `${Math.round(dispatchAgeMinutes)} minutes since dispatch` : "no dispatch found"}; ` +
+        `${latestSuccess ? `${Math.round(successAgeMinutes)} minutes since success` : "no success found"}`
     );
   }
 
-  const staleChecks = checks.filter(({ ageMinutes, staleAfterMinutes }) => ageMinutes > staleAfterMinutes);
-  if (staleChecks.length === 0) {
+  const unhealthyChecks = checks.filter(({ issues }) => issues.length > 0);
+  if (unhealthyChecks.length === 0) {
     console.log("Watcher is healthy; no email sent.");
     return;
   }
 
-  await sendHealthAlert(staleChecks);
-  throw new Error(`${staleChecks.map(({ label }) => label).join(" and ")} exceeded the health threshold.`);
+  await sendHealthAlert(unhealthyChecks);
+  throw new Error(`${unhealthyChecks.map(({ label }) => label).join(" and ")} exceeded a health threshold.`);
 }
 
 main().catch((error) => {
